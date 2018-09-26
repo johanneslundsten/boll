@@ -14,12 +14,18 @@ class BollTest {
     import sparkSession.implicits._
     import org.apache.spark.sql.functions._
 
-    val count = sparkSession.read
+    val df = sparkSession.read
       .option("header", value = true)
       .csv("C:/git/boll/data/*/*")
       .withColumn("season", substring(split(input_file_name(), "/").getItem(8), 0, 9))
       .where($"div" === "SP1" && $"season" === "2017_2018")
-      .show(10, truncate = false)
+      .withColumn("Date", to_timestamp($"Date", "dd/MM/yy"))
+//      .printSchema()
+
+
+
+
+    df.show(10, truncate = false)
 
 
   }
