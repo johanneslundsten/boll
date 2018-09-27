@@ -1,9 +1,12 @@
 package se.lundsten.boll
 
+import java.sql.Timestamp
+
 import org.apache.spark.api.java.StorageLevels
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.expressions.Window
 import org.junit.Test
+import org.apache.spark.sql.functions._
 
 class BollTest {
 
@@ -14,7 +17,34 @@ class BollTest {
       .getOrCreate()
 
     import sparkSession.implicits._
-    import org.apache.spark.sql.functions._
+
+    val team = "Barcelona"
+    val opponent = "Real Madrid"
+
+    val allGames = createAllGamesFromFile()
+
+    val previousGames = allGames
+      .where($"team" === team && $"opponent" === opponent)
+      .show(10)
+
+    val myFunc= udf[Int, Timestamp]({ s => {
+      val pos : Int =  createTable(allGames
+        .where($"date" < s))
+        .where($"team" === team)
+        .first().getAs("position")
+
+      return pos
+    }})
+
+    createTable(allGames).show(100)
+
+  }
+
+  def createAllGamesFromFile() : DataFrame = {
+    val sparkSession = SparkSession.builder()
+      .getOrCreate()
+
+    import sparkSession.implicits._
 
     val df = sparkSession.read
       .option("header", value = true)
@@ -31,7 +61,7 @@ class BollTest {
         $"FTAG".as("away_goals"),
         $"FTR".as("result"))
       .persist(StorageLevels.MEMORY_AND_DISK_2)
-//      .printSchema()
+    //      .printSchema()
 
 
     val homeGames = df.select(
@@ -51,16 +81,25 @@ class BollTest {
       $"home_goals".as("conceded_goals"),
       when($"result" === "A", 3).otherwise(when($"result" === "D", 1).otherwise(0)).as("points"),
       $"date",
-      lit("home").as("home_or_away"))
+      lit("away").as("home_or_away"))
 
     val allGames = homeGames.union(awayGames)
       .persist(StorageLevels.MEMORY_AND_DISK_2)
 
+    allGames
+  }
+
+  def createTable(games: DataFrame) : DataFrame = {
+
+    val sparkSession = SparkSession.builder()
+      .getOrCreate()
+
+    import sparkSession.implicits._
+
     val w = Window
       .orderBy($"points".desc)
 
-
-    val table = allGames
+    return games
       .groupBy("team")
       .agg(
         sum("points").as("points"),
@@ -70,7 +109,5 @@ class BollTest {
       )
       .withColumn("position", row_number().over(w))
       .select("position", "team", "points", "scored", "conceded", "GD")
-      .show(100)
-
   }
 }
