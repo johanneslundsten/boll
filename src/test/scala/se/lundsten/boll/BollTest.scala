@@ -2,6 +2,7 @@ package se.lundsten.boll
 
 import org.apache.spark.api.java.StorageLevels
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.expressions.Window
 import org.junit.Test
 
 class BollTest {
@@ -39,6 +40,7 @@ class BollTest {
       $"home_goals".as("scored_goals"),
       $"away_goals".as("conceded_goals"),
       when($"result" === "H", 3).otherwise(when($"result" === "D", 1).otherwise(0)).as("points"),
+      $"date",
       lit("home").as("home_or_away")
     )
 
@@ -48,10 +50,14 @@ class BollTest {
       $"away_goals".as("scored_goals"),
       $"home_goals".as("conceded_goals"),
       when($"result" === "A", 3).otherwise(when($"result" === "D", 1).otherwise(0)).as("points"),
+      $"date",
       lit("home").as("home_or_away"))
 
     val allGames = homeGames.union(awayGames)
       .persist(StorageLevels.MEMORY_AND_DISK_2)
+
+    val w = Window
+      .orderBy($"points".desc)
 
 
     val table = allGames
@@ -62,7 +68,8 @@ class BollTest {
         sum($"scored_goals").as("scored"),
         sum($"conceded_goals").as("conceded")
       )
-      .orderBy($"points".desc)
+      .withColumn("position", row_number().over(w))
+      .select("position", "team", "points", "scored", "conceded", "GD")
       .show(100)
 
   }
