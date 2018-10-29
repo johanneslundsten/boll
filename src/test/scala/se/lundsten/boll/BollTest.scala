@@ -20,23 +20,40 @@ class BollTest {
 
     val team = "Barcelona"
     val opponent = "Real Madrid"
+    val date = "2018-10-18"
 
+    /*
+    +-----------+-----------+------------+--------------+------+-------------------+------------+
+    |       team|   opponent|scored_goals|conceded_goals|points|               date|home_or_away|
+    +-----------+-----------+------------+--------------+------+-------------------+------------+
+    |    Leganes|     Alaves|           1|             0|     3|2017-08-18 00:00:00|        home|
+     */
     val allGames = createAllGamesFromFile()
 
-    val previousGames = allGames
-      .where($"team" === team && $"opponent" === opponent)
-      .show(10)
+    val allTables = createAllTables(allGames)
 
-    val myFunc= udf[Int, Timestamp]({ s => {
-      val pos : Int =  createTable(allGames
-        .where($"date" < s))
-        .where($"team" === team)
-        .first().getAs("position")
+    val windowSpec = Window.partitionBy("team").orderBy($"date".desc)
 
-      return pos
-    }})
+    val lastTen = allGames
+      .withColumn("rn", row_number().over(windowSpec))
 
-    createTable(allGames).show(100)
+    lastTen
+      .where($"rn" <= 10)
+      .groupBy("team")
+      .agg(
+        sum($"scored_goals"),
+        sum($"conceded_goals"),
+        avg($"points")
+      ).show(100)
+
+    lastTen
+      .where($"rn" <= 5)
+      .groupBy("team")
+      .agg(
+        sum($"scored_goals"),
+        sum($"conceded_goals"),
+        avg($"points")
+      ).show(100)
 
   }
 
@@ -89,6 +106,22 @@ class BollTest {
     allGames
   }
 
+
+  def createAllTables(games: DataFrame): DataFrame = {
+    val sparkSession = SparkSession.builder()
+      .getOrCreate()
+
+    import sparkSession.implicits._
+
+    val allDates = games.select($"date").distinct().rdd.map(r => r.getTimestamp(0)).collect()
+    var allTables = createTable(games).withColumn("at_date", lit(allDates.last))
+//    allDates.foreach(
+//      date => allTables = allTables.union(createTable(games.where($"date" < date)).withColumn("at_date", lit(date)))
+//    )
+
+    allTables
+  }
+
   def createTable(games: DataFrame) : DataFrame = {
 
     val sparkSession = SparkSession.builder()
@@ -109,5 +142,6 @@ class BollTest {
       )
       .withColumn("position", row_number().over(w))
       .select("position", "team", "points", "scored", "conceded", "GD")
+      .persist(StorageLevels.MEMORY_AND_DISK_2)
   }
 }
